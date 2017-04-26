@@ -1,0 +1,76 @@
+
+; This program will calculate the 8 year average of the gridded 
+; fire emissions
+; for paper with Matt
+; Created 11/29/2009
+
+pro average_grid
+
+close, /all
+
+; Neeed to read in all output files and then average over the co2 for each grid
+
+file1= 'F:\Data2\wildfire\MODEL_OUTPUTS\REGIONAL\MATTH_WESTUS\JUN02_2009\PROCESS\regrid_2001_NORX.txt'
+inload3=ascii_template(file1)
+datain=read_ascii(file1, template=inload3)
+id = datain.field1
+lat = datain.field2
+lon = datain.field3
+co2a = datain.field4
+
+file2= 'F:\Data2\wildfire\MODEL_OUTPUTS\REGIONAL\MATTH_WESTUS\JUN02_2009\PROCESS\regrid_2002_NORX.txt'
+inload3=ascii_template(file2)
+datain2=read_ascii(file2, template=inload3)
+co2b = datain2.field4
+
+file3= 'F:\Data2\wildfire\MODEL_OUTPUTS\REGIONAL\MATTH_WESTUS\JUN02_2009\PROCESS\regrid_2003_NORX.txt'
+inload3=ascii_template(file3)
+datain3=read_ascii(file3, template=inload3)
+co2c = datain3.field4
+
+file4= 'F:\Data2\wildfire\MODEL_OUTPUTS\REGIONAL\MATTH_WESTUS\JUN02_2009\PROCESS\regrid_2004_NORX.txt'
+inload3=ascii_template(file4)
+datain4=read_ascii(file4, template=inload3)
+co2d = datain4.field4
+
+file5= 'F:\Data2\wildfire\MODEL_OUTPUTS\REGIONAL\MATTH_WESTUS\JUN02_2009\PROCESS\regrid_2005_NORX.txt'
+inload3=ascii_template(file5)
+datain5=read_ascii(file5, template=inload3)
+co2e = datain5.field4
+
+file6= 'F:\Data2\wildfire\MODEL_OUTPUTS\REGIONAL\MATTH_WESTUS\JUN02_2009\PROCESS\regrid_2006_NORX.txt'
+inload3=ascii_template(file6)
+datain6=read_ascii(file6, template=inload3)
+co2f = datain6.field4
+
+file7= 'F:\Data2\wildfire\MODEL_OUTPUTS\REGIONAL\MATTH_WESTUS\JUN02_2009\PROCESS\regrid_2007_NORX.txt'
+inload3=ascii_template(file7)
+datain7=read_ascii(file7, template=inload3)
+co2g = datain7.field4
+
+file8= 'F:\Data2\wildfire\MODEL_OUTPUTS\REGIONAL\MATTH_WESTUS\JUN02_2009\PROCESS\regrid_2008_NORX.txt'
+inload3=ascii_template(file8)
+datain8=read_ascii(file8, template=inload3)
+co2h = datain8.field4
+
+; OUTFILE
+outfile = 'F:\Data2\wildfire\MODEL_OUTPUTS\REGIONAL\MATTH_WESTUS\JUN02_2009\PROCESS\AVERAGE_REGRID_NORX.txt'
+openw, 1, outfile
+printf, 1, 'ID, LAT, LONG, AVE_CO2, MED_CO2, STDEV'
+form = '(I10,5(",",F25.12))'
+
+num = n_elements(co2a)
+aveco2 = fltarr(num)
+medco2 = fltarr(num)
+stdevco2=fltarr(num)
+
+for i = 0,num-1 do begin
+    x = [co2a[i],co2b[i],co2c[i],co2d[i],co2e[i],co2f[i],co2g[i],co2h[i]]
+    aveco2[i] = mean(x)
+    medco2[i] = median(x)
+    stdevco2 = stdev(x)
+    printf, 1, format = form, ID[i],LAT[i], LON[i], AVECO2[i], MEDCO2[i],STDEVCO2[i]
+endfor
+
+close, /all
+end

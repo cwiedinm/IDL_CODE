@@ -1,0 +1,469 @@
+; $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
+; This program will read in the output file from the fire model, and create
+; NetCDF file for Gaby
+; She needs the emissions summed for each month and put onto a 1 degree resolution
+;
+; The extent of my North American domain is:
+;    latitude: 10.03 to 70.32
+;    longitude: -164.98 to -54.999
+; So, her file will start with a grid centered on
+;    latitude:10.5
+;    longitude:-164.5
+; and will end on a grid centered on:
+;    latitude:70.5
+;    longitude:-55.5
+; Program Created November 23-24, 2004 by Christine
+;
+; Dec. 13, 2004: Edited this program to also include speciated VOC emissions
+;   using scaling factors from Louisa (used in MOZART)
+; ALso- for 2004: have to only have 9 months! - need to fix later
+; December 28, 2004: Edited this program to put out daily totals on a 1 degree cell
+;   This is for June - September ONLY
+;  $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
+
+pro makefirecdf
+
+close, /all
+
+; Get pathways
+    inpath = 'D:\Christine\WORK\wildfire\EPA_EI\2004Data\output\'
+    outpath = 'D:\Christine\WORK\wildfire\EPA_EI\2004Data\output\'
+
+; Set Files
+    infile = inpath+'out2004.txt'
+    areafile = outpath+'deg1_area.txt'
+    outfile = outpath+'fire2004_daily.nc'
+    checkfile = outpath+'check_firetots2004_daily.txt'
+
+; Open input file and get the needed variables
+        intemp=ascii_template(infile)
+        fire=read_ascii(infile, template=intemp)
+        ; Fields of Concern:
+        ; Field02 = lon
+        ; Field03 = lat
+        ; Field04 = day
+        ; Field05 = GLC Code
+        ; Field12 = CO2
+        ; Field13 = CO
+        ; Field14 = PM10
+        ; Field15 = PM2.5
+        ; Field16 = NOx
+        ; Field17 = NH3
+        ; Field18 = SO2
+        ; Field19 = VOC
+        ; Field20 = CH4
+        ; Emissions are in kg/km2/day
+
+       glc = fire.field05
+
+
+; ONLY get fires from June through September
+    days  = where(fire.field04 ge 152 and fire.field04 lt 274)
+    print, 'The total number of fires from June - Setpember in 2004 is:', n_elements(days)
+; Number of days in June through September
+    numdays = 122
+
+; Set up 1 degree arrays
+    lon = fltarr(110)
+    lat = fltarr(61)
+;Start in Lower Left corner
+    lon[0] = -164.5
+    for i =1,109 do begin
+       lon[i] = lon[i-1]+1
+    endfor
+    lat[0] = 10.5
+    for i =1,60 do begin
+       lat[i] = lat[i-1]+1
+    endfor
+
+
+; Get latitude, longitude, and area
+        areatemp=ascii_template(areafile)
+        areain=read_ascii(areafile, template=areatemp)
+        ; field1 = latitude
+        ; field2 = longitude
+        ; field3 = AREA (km2)
+
+       area = areain.field3
+
+; Set up output Arrays
+    CO2_emis = fltarr(110,61,numdays)
+    CO_emis = fltarr(110,61,numdays)
+    NOX_emis = fltarr(110,61,numdays)
+    VOC_emis = fltarr(110,61,numdays)
+    SO2_emis = fltarr(110,61,numdays)
+    NH3_emis = fltarr(110,61,numdays)
+    PM25_emis = fltarr(110,61,numdays)
+    PM10_emis = fltarr(110,61,numdays)
+    CH4_emis = fltarr(110,61,numdays)
+
+; Set up speciated VOC arrays
+    C2H6emis =  fltarr(110,61,numdays)
+    C2H4emis = fltarr(110,61,numdays)
+    C3H8emis =  fltarr(110,61,numdays)
+    C3H6emis =  fltarr(110,61,numdays)
+    CH2Oemis =  fltarr(110,61,numdays)
+    CH3OHemis =  fltarr(110,61,numdays)
+    BIGALKemis =  fltarr(110,61,numdays)
+    BIGENEemis =  fltarr(110,61,numdays)
+    CH3COCH3emis =  fltarr(110,61,numdays)
+    C2H5OHemis = fltarr(110,61,numdays)
+    CH3CHOemis =  fltarr(110,61,numdays)
+    MEKemis =  fltarr(110,61,numdays)
+    TOLemis =  fltarr(110,61,numdays)
+    NOemis = fltarr(110,61,numdays)
+    OCemis =  fltarr(110,61,numdays)
+    BCemis =  fltarr(110,61,numdays)
+
+; Set up monthly time array
+    time = ULON64ARR(numdays)
+
+; Write the check file
+    openw, 3, checkfile
+    printf, 3, 'month, longitude, latitude, CO2, NOx,CH2O,NO'
+
+; Fill in Arrays by each day between June and September
+ for i = 0, numdays-1 do begin  ; Go through every day
+       jd = i+152 ; Set the Julian Day
+        time[i] = jd
+       month = where(fire.field04 eq jd)
+
+       ; Get the array that is from the month at hand
+       monthlon = fire.field02[month]
+       monthlat = fire.field03[month]
+       monthglc = fire.field05[month]
+       monthco2 = fire.field12[month]
+       monthco = fire.field13[month]
+       monthPM10 = fire.field14[month]
+       monthPM25 = fire.field15[month]
+       monthNOX = fire.field16[month]
+       monthNH3 = fire.field17[month]
+       monthSO2 = fire.field18[month]
+       monthVOC = fire.field19[month]
+       monthCH4 = fire.field20[month]
+
+       count = n_elements(monthco2)
+
+    ; Sum all of the emissions in each 1 degree by 1 degree grid cell
+    ;  and write them to new arrays
+
+    for k = 0,109 do begin
+       for l = 0,60 do begin
+         inside = where((monthlon ge (lon[k]-0.5)) and (monthlon lt (lon[k]+0.5)) and (monthlat ge (lat[l]-0.5)) and (monthlat lt (lat[l]+0.5)))
+         no = n_elements(inside)
+         if inside[0] eq -1 then goto, skip
+       for m = 0,no-1 do begin
+              CO2_emis[k,l,i]=CO2_emis[k,l,i]+monthco2[inside[m]]
+              CO_emis[k,l,i]=CO_emis[k,l,i]+monthco[inside[m]]
+              CH4_emis[k,l,i]=CH4_emis[k,l,i]+monthCH4[inside[m]]
+              VOC_emis[k,l,i]=VOC_emis[k,l,i]+monthVOC[inside[m]]
+              NH3_emis[k,l,i]=NH3_emis[k,l,i]+monthNH3[inside[m]]
+              NOX_emis[k,l,i]=NOX_emis[k,l,i]+monthNOX[inside[m]]
+              SO2_emis[k,l,i]=SO2_emis[k,l,i]+monthSO2[inside[m]]
+              PM10_emis[k,l,i]=PM10_emis[k,l,i]+monthPM10[inside[m]]
+              PM25_emis[k,l,i]=PM25_emis[k,l,i]+monthPM25[inside[m]]
+       ; Calculate the speciated emissions arrays, using factors provided from Louisa
+       ; For Tropical Forests:
+         if monthglc[inside[m]] eq 1 or monthglc[inside[m]] eq 2 or monthglc[inside[m]] eq 29 then begin
+           C2H6emis[k,l,i] = C2H6emis[k,l,i]+monthco2[inside[m]]*7.295e-4
+           C2H4emis[k,l,i] = C2H4emis[k,l,i]+monthco2[inside[m]]*1.181e-03
+           C3H8emis[k,l,i] = C3H8emis[k,l,i]+monthco2[inside[m]]*9.0e-5
+           C3H6emis[k,l,i] = C3H6emis[k,l,i]+monthco2[inside[m]]*3.331e-04
+           CH2Oemis[k,l,i] = CH2Oemis[k,l,i] +monthco2[inside[m]]*6.061e-4
+           CH3OHemis[k,l,i] = CH3OHemis[k,l,i] +monthco2[inside[m]]*1.212e-03
+           BIGALKemis[k,l,i] = BIGALKemis[k,l,i] +monthco2[inside[m]]*2.16e-4
+           BIGENEemis[k,l,i] = BIGENEemis[k,l,i] +monthco2[inside[m]]*4.085e-4
+           CH3COCH3emis[k,l,i] = CH3COCH3emis[k,l,i]+monthco2[inside[m]]*3.757e-4
+           C2H5OHemis[k,l,i] = C2H5OHemis[k,l,i]+monthco2[inside[m]]*6.304e-5
+           CH3CHOemis[k,l,i] = CH3CHOemis[k,l,i]+monthco2[inside[m]]*8.56e-4
+           MEKemis[k,l,i] = MEKemis[k,l,i]+monthco2[inside[m]]*8.476e-4
+           TOLemis[k,l,i] = TOLemis[k,l,i]+monthco2[inside[m]]*4.203e-4
+           NOemis[k,l,i] = NOemis[k,l,i]+monthco2[inside[m]]*9.607e-4
+           OCemis[k,l,i] = OCemis[k,l,i]+monthco2[inside[m]]*3.292e-3
+           BCemis[k,l,i] = BCemis[k,l,i]+monthco2[inside[m]]*4.178e-4
+         endif
+          ; For TEMPERATE Forests:
+         if (monthglc[inside[m]] ge 3 and monthglc[inside[m]] le 9) or monthglc[inside[m]] eq 20 then begin
+           C2H6emis[k,l,i] = C2H6emis[k,l,i]+monthco2[inside[m]]*3.627e-04
+           C2H4emis[k,l,i] = C2H4emis[k,l,i]+monthco2[inside[m]]*6.809e-04
+           C3H8emis[k,l,i] = C3H8emis[k,l,i]+monthco2[inside[m]]*1.15e-04
+           C3H6emis[k,l,i] = C3H6emis[k,l,i]+monthco2[inside[m]]*3.57e-04
+           CH2Oemis[k,l,i] = CH2Oemis[k,l,i] +monthco2[inside[m]]*9.545e-4
+           CH3OHemis[k,l,i] = CH3OHemis[k,l,i] +monthco2[inside[m]]*1.212e-03
+           BIGALKemis[k,l,i] = BIGALKemis[k,l,i] +monthco2[inside[m]]*2.847e-4
+           BIGENEemis[k,l,i] = BIGENEemis[k,l,i] +monthco2[inside[m]]*3.742e-4
+           CH3COCH3emis[k,l,i] = CH3COCH3emis[k,l,i]+monthco2[inside[m]]*3.322e-4
+           C2H5OHemis[k,l,i] = C2H5OHemis[k,l,i]+monthco2[inside[m]]*6.9e-5
+           CH3CHOemis[k,l,i] = CH3CHOemis[k,l,i]+monthco2[inside[m]]*9.76e-4
+           MEKemis[k,l,i] = MEKemis[k,l,i]+monthco2[inside[m]]*9.00e-4
+           TOLemis[k,l,i] = TOLemis[k,l,i]+monthco2[inside[m]]*7.695e-4
+           NOemis[k,l,i] = NOemis[k,l,i]+monthco2[inside[m]]*1.814e-03
+           OCemis[k,l,i] = OCemis[k,l,i]+monthco2[inside[m]]*5.801e-03
+           BCemis[k,l,i] = BCemis[k,l,i]+monthco2[inside[m]]*3.57e-04
+         endif
+           ; For Savannah/Grasslands Forests:
+           ; Including open shrublands, crops, and wetlands in this category!!
+         if (monthglc[inside[m]] ge 10 and monthglc[inside[m]] le 19) or (monthglc[inside[m]] ge 21 and monthglc[inside[m]] le 28) then begin
+           C2H6emis[k,l,i] = C2H6emis[k,l,i]+monthco2[inside[m]]*1.936e-04
+           C2H4emis[k,l,i] = C2H4emis[k,l,i]+monthco2[inside[m]]*4.798e-04
+           C3H8emis[k,l,i] = C3H8emis[k,l,i]+monthco2[inside[m]]*5.45e-05
+           C3H6emis[k,l,i] = C3H6emis[k,l,i]+monthco2[inside[m]]*1.585e-04
+           CH2Oemis[k,l,i] = CH2Oemis[k,l,i] +monthco2[inside[m]]*1.520e-4
+           CH3OHemis[k,l,i] = CH3OHemis[k,l,i] +monthco2[inside[m]]*7.876e-04
+           BIGALKemis[k,l,i] = BIGALKemis[k,l,i] +monthco2[inside[m]]*1.355e-04
+           BIGENEemis[k,l,i] = BIGENEemis[k,l,i] +monthco2[inside[m]]*2.227e-05
+           CH3COCH3emis[k,l,i] = CH3COCH3emis[k,l,i]+monthco2[inside[m]]*2.676e-04
+           C2H5OHemis[k,l,i] = C2H5OHemis[k,l,i]+monthco2[inside[m]]*4.799e-05
+           CH3CHOemis[k,l,i] = CH3CHOemis[k,l,i]+monthco2[inside[m]]*5.560e-04
+           MEKemis[k,l,i] = MEKemis[k,l,i]+monthco2[inside[m]]*5.253e-04
+           TOLemis[k,l,i] = TOLemis[k,l,i]+monthco2[inside[m]]*2.676e-04
+           NOemis[k,l,i] = NOemis[k,l,i]+monthco2[inside[m]]*2.366e-03
+           OCemis[k,l,i] = OCemis[k,l,i]+monthco2[inside[m]]*2.108e-03
+           BCemis[k,l,i] = BCemis[k,l,i]+monthco2[inside[m]]*2.975e-04
+         endif
+      endfor ; End of m loop
+
+         gridindex = where(areain.field1 eq lat[l] and areain.field2 eq lon[k])
+
+         if gridindex[0] eq -1 then print, 'Something is wrong!'
+
+         gridarea = area[gridindex]
+
+    ; Divide the emissions by the area of the 1 degree grid cell!
+    ; FINAL output units of the emisisons is: kg km-2 month-1
+              CO2_emis[k,l,i]=CO2_emis[k,l,i]/gridarea
+              CO_emis[k,l,i]=CO_emis[k,l,i]/gridarea
+              CH4_emis[k,l,i]=CH4_emis[k,l,i]/gridarea
+              VOC_emis[k,l,i]=VOC_emis[k,l,i]/gridarea
+              NH3_emis[k,l,i]=NH3_emis[k,l,i]/gridarea
+              NOX_emis[k,l,i]=NOX_emis[k,l,i]/gridarea
+              SO2_emis[k,l,i]=SO2_emis[k,l,i]/gridarea
+              PM10_emis[k,l,i]=PM10_emis[k,l,i]/gridarea
+              PM25_emis[k,l,i]=PM25_emis[k,l,i]/gridarea
+          C2H6emis[k,l,i] = C2H6emis[k,l,i]/gridarea
+          C2H4emis[k,l,i] = C2H4emis[k,l,i]/gridarea
+          C3H8emis[k,l,i] = C3H8emis[k,l,i]/gridarea
+          C3H6emis[k,l,i] = C3H6emis[k,l,i]/gridarea
+          CH2Oemis[k,l,i] = CH2Oemis[k,l,i]/gridarea
+          CH3OHemis[k,l,i] = CH3OHemis[k,l,i]/gridarea
+          BIGALKemis[k,l,i] = BIGALKemis[k,l,i]/gridarea
+          BIGENEemis[k,l,i] = BIGENEemis[k,l,i]/gridarea
+          CH3COCH3emis[k,l,i] = CH3COCH3emis[k,l,i]/gridarea
+          C2H5OHemis[k,l,i] = C2H5OHemis[k,l,i]/gridarea
+          CH3CHOemis[k,l,i] = CH3CHOemis[k,l,i]/gridarea
+          MEKemis[k,l,i] = MEKemis[k,l,i]/gridarea
+          TOLemis[k,l,i] = TOLemis[k,l,i]/gridarea
+          NOemis[k,l,i] = NOemis[k,l,i]/gridarea
+          OCemis[k,l,i] = OCemis[k,l,i]/gridarea
+          BCemis[k,l,i] = BCemis[k,l,i]/gridarea
+
+       ; Print out to check file
+          printf, 3, time[i],",",lon[k],",",lat[l],",",CO2_emis[k,l,i],",",NOX_emis[k,l,i],",",CH2Oemis[k,l,i],",",NOemis[k,l,i]
+       skip:
+       endfor ; end of l loop
+    endfor ; end of k loop
+   skipmonth:
+endfor ; End of i (dailyly) loop
+; Create a NetCDF file with the data
+;; Create the netCDF file
+;; -------------------------------------------
+; -------------------------------------------
+;; Create the netCDF file
+;; -------------------------------------------
+
+;; (Overwite if it already exists)
+ncid = NCDF_CREATE(outfile,/CLOBBER)
+
+   ;; Write global attributes
+   ; **************************************************************************************
+   ; NOTE: These must be edited - depending on which compound and file we are converting!!
+   ; **************************************************************************************
+   NCDF_ATTPUT,ncid,/GLOBAL,'Title', $
+      'Daily Fire Emissions', /CHAR
+   NCDF_ATTPUT,ncid,/GLOBAL,'Source',  $
+      'Christines first initial estimates',/CHAR
+   NCDF_ATTPUT,ncid,/GLOBAL,'Year',  $
+      '2004',/CHAR
+   NCDF_ATTPUT,ncid,/GLOBAL,'Month',  $
+      'June through September',/CHAR
+   NCDF_ATTPUT,ncid,/GLOBAL,'Authors', $
+      'Christine Wiedinmyer, ACD/NCAR <christin@ucar.edu>', /CHAR
+   NCDF_ATTPUT,ncid,/GLOBAL,'History',  $
+      'created December 28, 2004', /CHAR
+   NCDF_ATTPUT,ncid,/GLOBAL,'Grid', $
+      '1 degree resolution: Latitude from 10 degrees N to 71 degrees S; Longitude from -165 to -55 degrees', /CHAR
+
+
+; Define dimensions
+; ************************************
+   nlat = 61
+   nlon = 110
+   ntime = 122
+
+  ; Dimensionalize the 1D arrays
+   dlat   = NCDF_DIMDEF(ncid,'lat',nlat)
+   dlon   = NCDF_DIMDEF(ncid,'lon',nlon)
+   dtime  = NCDF_DIMDEF(ncid,'time',ntime)
+
+
+   ;; Define variables
+
+   ;; Define variables
+       vlon = NCDF_VARDEF(ncid, 'lon', [dlon], /FLOAT)
+       NCDF_ATTPUT,ncid,vlon,'long_name','longitude',/CHAR
+       NCDF_ATTPUT,ncid,vlon,'units','degrees_east',/CHAR
+
+       vlat = NCDF_VARDEF(ncid, 'lat', [dlat], /FLOAT)
+       NCDF_ATTPUT,ncid,vlat,'long_name','latitude',/CHAR
+       NCDF_ATTPUT,ncid,vlat,'units','degrees_north',/CHAR
+
+       vtime = NCDF_VARDEF(ncid, 'Day', [dtime], /LONG)
+       NCDF_ATTPUT,ncid,vtime,'long_name','Julian Date',/CHAR
+       NCDF_ATTPUT,ncid,vlat,'units','Day',/CHAR
+
+       vco2 = NCDF_VARDEF(ncid, 'CO2_emis', [dlon,dlat,dtime], /FLOAT)
+       NCDF_ATTPUT,ncid,vco2, 'long_name','Daily CO2 emissions from fire',/CHAR
+       NCDF_ATTPUT,ncid,vco2, 'units','kg km-2 month',/CHAR
+
+       vco = NCDF_VARDEF(ncid, 'CO_emis', [dlon,dlat,dtime], /FLOAT)
+       NCDF_ATTPUT,ncid,vco, 'long_name','Daily CO emissions from fire',/CHAR
+       NCDF_ATTPUT,ncid,vco, 'units','kg km-2 month',/CHAR
+
+       vvoc = NCDF_VARDEF(ncid, 'VOC_emis', [dlon,dlat,dtime], /FLOAT)
+       NCDF_ATTPUT,ncid,vvoc, 'long_name','Daily VOC emissions from fire',/CHAR
+       NCDF_ATTPUT,ncid,vvoc, 'units','kg km-2 month',/CHAR
+
+       vnox = NCDF_VARDEF(ncid, 'NOx_emis', [dlon,dlat,dtime], /FLOAT)
+       NCDF_ATTPUT,ncid,vnox, 'long_name','Daily NOx emissions from fire',/CHAR
+       NCDF_ATTPUT,ncid,vnox, 'units','kg km-2 month',/CHAR
+
+       vso2 = NCDF_VARDEF(ncid, 'SO2_emis', [dlon,dlat,dtime], /FLOAT)
+       NCDF_ATTPUT,ncid,vso2, 'long_name','Daily SO2 emissions from fire',/CHAR
+       NCDF_ATTPUT,ncid,vso2, 'units','kg km-2 month',/CHAR
+
+       vnh3 = NCDF_VARDEF(ncid, 'NH3_emis', [dlon,dlat,dtime], /FLOAT)
+       NCDF_ATTPUT,ncid,vnh3, 'long_name','Daily NH3 emissions from fire',/CHAR
+       NCDF_ATTPUT,ncid,vnh3, 'units','kg km-2 month',/CHAR
+
+       vch4 = NCDF_VARDEF(ncid, 'CH4_emis', [dlon,dlat,dtime], /FLOAT)
+       NCDF_ATTPUT,ncid,vch4, 'long_name','Daily CH4 emissions from fire',/CHAR
+       NCDF_ATTPUT,ncid,vch4, 'units','kg km-2 month',/CHAR
+
+       vpm25 = NCDF_VARDEF(ncid, 'PM2p5_emis', [dlon,dlat,dtime], /FLOAT)
+       NCDF_ATTPUT,ncid,vpm25, 'long_name','Daily PM2.5 emissions from fire',/CHAR
+       NCDF_ATTPUT,ncid,vpm25, 'units','kg km-2 month',/CHAR
+
+       vpm10 = NCDF_VARDEF(ncid, 'PM10_emis', [dlon,dlat,dtime], /FLOAT)
+       NCDF_ATTPUT,ncid,vpm10, 'long_name','Daily PM10 emissions from fire',/CHAR
+       NCDF_ATTPUT,ncid,vpm10, 'units','kg km-2 month',/CHAR
+
+       vc2h6 = NCDF_VARDEF(ncid, 'C2H6_emis', [dlon,dlat,dtime], /FLOAT)
+       NCDF_ATTPUT,ncid,vc2h6, 'long_name','Daily C2H6 emissions from fire',/CHAR
+       NCDF_ATTPUT,ncid,vc2h6, 'units','kg km-2 month',/CHAR
+
+       vc2h4 = NCDF_VARDEF(ncid, 'C2H4_emis', [dlon,dlat,dtime], /FLOAT)
+       NCDF_ATTPUT,ncid,vc2h4, 'long_name','Daily C2H4 emissions from fire',/CHAR
+       NCDF_ATTPUT,ncid,vc2h4, 'units','kg km-2 month',/CHAR
+
+       vc3h8 = NCDF_VARDEF(ncid, 'C3H8_emis', [dlon,dlat,dtime], /FLOAT)
+       NCDF_ATTPUT,ncid,vc3h8, 'long_name','Daily C3H8 emissions from fire',/CHAR
+       NCDF_ATTPUT,ncid,vc3h8, 'units','kg km-2 month',/CHAR
+
+       vc3h6 = NCDF_VARDEF(ncid, 'C3H6_emis', [dlon,dlat,dtime], /FLOAT)
+       NCDF_ATTPUT,ncid,vc3h6, 'long_name','Daily C3H6 emissions from fire',/CHAR
+       NCDF_ATTPUT,ncid,vc3h6, 'units','kg km-2 month',/CHAR
+
+       vch2o = NCDF_VARDEF(ncid, 'CH2O_emis', [dlon,dlat,dtime], /FLOAT)
+       NCDF_ATTPUT,ncid,vch2o, 'long_name','Daily CH2O emissions from fire',/CHAR
+       NCDF_ATTPUT,ncid,vch2o, 'units','kg km-2 month',/CHAR
+
+       vch3oh = NCDF_VARDEF(ncid, 'CH3OH_emis', [dlon,dlat,dtime], /FLOAT)
+       NCDF_ATTPUT,ncid,vch3oh, 'long_name','Daily CH3OH emissions from fire',/CHAR
+       NCDF_ATTPUT,ncid,vch3oh, 'units','kg km-2 month',/CHAR
+
+       vbigalk = NCDF_VARDEF(ncid, 'BIGALK_emis', [dlon,dlat,dtime], /FLOAT)
+       NCDF_ATTPUT,ncid,vbigalk, 'long_name','Daily BIGALK emissions from fire',/CHAR
+       NCDF_ATTPUT,ncid,vbigalk, 'units','kg km-2 month',/CHAR
+
+       vbigene = NCDF_VARDEF(ncid, 'BIGENE_emis', [dlon,dlat,dtime], /FLOAT)
+       NCDF_ATTPUT,ncid,vbigene, 'long_name','Daily BIGENE emissions from fire',/CHAR
+       NCDF_ATTPUT,ncid,vbigene, 'units','kg km-2 month',/CHAR
+
+       vch3coch3 = NCDF_VARDEF(ncid, 'CH3COCH3_emis', [dlon,dlat,dtime], /FLOAT)
+       NCDF_ATTPUT,ncid,vch3coch3, 'long_name','Daily CH3COCH3 emissions from fire',/CHAR
+       NCDF_ATTPUT,ncid,vch3coch3, 'units','kg km-2 month',/CHAR
+
+       vc2h5oh = NCDF_VARDEF(ncid, 'C2H5OH_emis', [dlon,dlat,dtime], /FLOAT)
+       NCDF_ATTPUT,ncid,vc2h5oh, 'long_name','Daily C2H5OH emissions from fire',/CHAR
+       NCDF_ATTPUT,ncid,vc2h5oh, 'units','kg km-2 month',/CHAR
+
+       vch3cho = NCDF_VARDEF(ncid, 'CH3CHO_emis', [dlon,dlat,dtime], /FLOAT)
+       NCDF_ATTPUT,ncid,vch3cho, 'long_name','Daily CH3CHO emissions from fire',/CHAR
+       NCDF_ATTPUT,ncid,vch3cho, 'units','kg km-2 month',/CHAR
+
+       vmek = NCDF_VARDEF(ncid, 'MEK_emis', [dlon,dlat,dtime], /FLOAT)
+       NCDF_ATTPUT,ncid,vmek, 'long_name','Daily MEK emissions from fire',/CHAR
+       NCDF_ATTPUT,ncid,vmek, 'units','kg km-2 month',/CHAR
+
+       vtol = NCDF_VARDEF(ncid, 'TOLUENE_emis', [dlon,dlat,dtime], /FLOAT)
+       NCDF_ATTPUT,ncid,vtol, 'long_name','Daily TOLUENE emissions from fire',/CHAR
+       NCDF_ATTPUT,ncid,vtol, 'units','kg km-2 month',/CHAR
+
+       vno = NCDF_VARDEF(ncid, 'NO_emis', [dlon,dlat,dtime], /FLOAT)
+       NCDF_ATTPUT,ncid,vno, 'long_name','Daily NO emissions from fire, using scale factor',/CHAR
+       NCDF_ATTPUT,ncid,vno, 'units','kg km-2 month',/CHAR
+
+       voc = NCDF_VARDEF(ncid, 'OC_emis', [dlon,dlat,dtime], /FLOAT)
+       NCDF_ATTPUT,ncid,voc, 'long_name','Daily OC emissions from fire',/CHAR
+       NCDF_ATTPUT,ncid,voc, 'units','kg km-2 month',/CHAR
+
+       vbc = NCDF_VARDEF(ncid, 'BC_emis', [dlon,dlat,dtime], /FLOAT)
+       NCDF_ATTPUT,ncid,vbc, 'long_name','Daily BC emissions from fire',/CHAR
+       NCDF_ATTPUT,ncid,vbc, 'units','kg km-2 month',/CHAR
+
+
+
+   ; End definition mode and write data
+       NCDF_CONTROL,ncid,/ENDEF
+
+   ;; Store dimension variables first
+
+       NCDF_VARPUT, ncid, vlon, lon
+       NCDF_VARPUT, ncid, vlat, lat
+       NCDF_VARPUT, ncid, vtime, time
+       NCDF_VARPUT, ncid, vco2, CO2_emis
+       NCDF_VARPUT, ncid, vco, CO_emis
+       NCDF_VARPUT, ncid, vch4, CH4_emis
+       NCDF_VARPUT, ncid, vvoc, VOC_emis
+       NCDF_VARPUT, ncid, vnox, NOX_emis
+       NCDF_VARPUT, ncid, vnh3, NH3_emis
+       NCDF_VARPUT, ncid, vso2, SO2_emis
+       NCDF_VARPUT, ncid, vpm10, PM10_emis
+       NCDF_VARPUT, ncid, vpm25, PM25_emis
+       ; put in the speciated VOC for MOZART
+        NCDF_VARPUT, ncid, vc2h6, C2H6emis
+         NCDF_VARPUT, ncid, vc2h4, C2H4emis
+          NCDF_VARPUT, ncid, vc3h8, C3H8emis
+           NCDF_VARPUT, ncid, vc3h6, C3H6emis
+            NCDF_VARPUT, ncid, vch2o, CH2Oemis
+             NCDF_VARPUT, ncid, vch3oh, CH3OHemis
+              NCDF_VARPUT, ncid, vbigalk, BIGALKemis
+               NCDF_VARPUT, ncid, vbigene, BIGENEemis
+                NCDF_VARPUT, ncid, vch3coch3, CH3COCH3emis
+                NCDF_VARPUT, ncid, vc2h5oh, C2H5OHemis
+                 NCDF_VARPUT, ncid, vch3cho, CH3CHOemis
+                  NCDF_VARPUT, ncid, vmek, MEKemis
+                   NCDF_VARPUT, ncid, vtol, TOLemis
+                    NCDF_VARPUT, ncid, vno, NOemis
+                     NCDF_VARPUT, ncid, voc, OCemis
+                      NCDF_VARPUT, ncid, vbc, BCemis
+
+
+; Close file
+    NCDF_CLOSE, ncid
+
+
+; End Program
+close, /all
+print, 'Progran Ended! All done!'
+END

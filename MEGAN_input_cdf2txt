@@ -1,0 +1,39 @@
+; This file will read in a wrfinput file and create a text file with the 
+; xlat and xlong data for reading into GIS. 
+; Created August 31, 2010
+; Edited 10/2/2010 to process Oivind's file
+
+pro MEGAN_input_cdf2txt
+
+close, /all
+
+
+;filename = 'F:\Data2\wildfire\Jeff_LEE\ASIA\wrfinput_d01'
+; filename = 'F:\Data2\wildfire\WRFCHEM\OIVIND\wrfinput_d01.nc'
+nc_id=ncdf_open(filename)
+ncdf_varget,nc_id,'LAT',LAT
+ncdf_varget,nc_id,'LONG',LONG
+ncdf_varget,nc_id,'Broadleaf_tree_cover_fraction_for_year_2001_(m2_per_m2)',Broadleaf_tree_cover_fraction_for_year_2001_(m2_per_m2)
+ncdf_close,nc_id
+
+; NOTE: XLAT and XLONG will have the index [columns, rows]
+
+n_columns = n_elements(XLAT[*,0])
+n_rows = n_elements(XLAT[0,*])
+btr=Broadleaf_tree_cover_fraction_for_year_2001_(m2_per_m2)
+count = 0
+
+openw, 1, 'F:\Data2\MEGAN\WRF_CHEM\PREPROCESS\BTR_text.txt'
+printf, 1, 'GRIDID, X, Y, LATITUDE, LONGITUDE, BTR'
+form = '(I10,",",I5,",",I5,",",F20.10,",",F20.10,",",I5)'
+
+for i = 0,n_columns-1 do begin
+  for j = 0,n_rows-1 do begin
+    count = count+1
+    printf, 1, format = form, count, i+1,j+1,LAT[j],LONG[i], BTR[i,j]
+  endfor
+endfor
+
+
+close, /all
+end
